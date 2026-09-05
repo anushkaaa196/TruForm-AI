@@ -40,6 +40,8 @@ from .performance_trends import analyze_performance_trends
 from .gym_locator import (
     get_device_location,
     fetch_nearby_gyms,
+    get_local_verified_gyms,
+    warm_gym_locator_cache,
     get_google_maps_search_url,
     get_google_maps_directions_url,
     geocode_location,
@@ -87,6 +89,8 @@ __all__ = [
     "analyze_performance_trends",
     "get_device_location",
     "fetch_nearby_gyms",
+    "get_local_verified_gyms",
+    "warm_gym_locator_cache",
     "get_google_maps_search_url",
     "get_google_maps_directions_url",
     "geocode_location",

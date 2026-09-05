@@ -6,6 +6,7 @@ _ROOT = str(Path(__file__).resolve().parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+import threading
 from typing import Dict, Any, Optional
 import cv2
 import numpy as np
@@ -24,7 +25,9 @@ from core.risk_intelligence import evaluate_movement_risk
 from core.adaptive_coaching import get_adaptive_coaching
 from core.recovery_recommendations import get_recovery_recommendations
 from core.performance_trends import analyze_performance_trends
+from core.gym_locator import warm_gym_locator_cache
 from ui import theme
+
 from ui.components import (
     SidebarFrame,
     ViewportFrame,
@@ -90,8 +93,11 @@ class AIWorkoutUI(ctk.CTk):
         self._last_fatigue_data: Dict[str, Any] = {}
         self._last_risk_data: Dict[str, Any] = {}
         self._last_coach_data: Dict[str, Any] = {}
-        self._last_recovery_data: Dict[str, Any] = {}
         self.analytics_hub: Optional[AnalyticsHubDialog] = None
+        self.gym_dialog: Optional[GymLocatorDialog] = None
+
+        # Pre-warm device location and gym cache asynchronously for 0 ms opening
+        threading.Thread(target=warm_gym_locator_cache, daemon=True).start()
 
         # Initialize Backend Engine with frame processing callback
         self.engine = WorkoutEngine(on_frame_processed=self._on_frame_processed)
@@ -225,8 +231,13 @@ class AIWorkoutUI(ctk.CTk):
         )
 
     def _open_gym_locator_dialog(self):
-        """Opens the nearby gym and fitness facility locator modal dialog."""
-        GymLocatorDialog(self)
+        """Opens or focuses the nearby gym and fitness facility locator modal dialog."""
+        if self.gym_dialog and self.gym_dialog.winfo_exists():
+            self.gym_dialog.lift()
+            self.gym_dialog.focus_force()
+            return
+        self.gym_dialog = GymLocatorDialog(self)
+
 
     def _open_analytics_hub(self, initial_tab: str = "OVERVIEW"):
         """Opens or focuses the dedicated Advanced Performance Analytics Hub."""
