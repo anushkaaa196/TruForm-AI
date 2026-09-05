@@ -42,6 +42,7 @@ from .gym_locator import (
     fetch_nearby_gyms,
     get_local_verified_gyms,
     warm_gym_locator_cache,
+    set_user_preferred_location,
     get_google_maps_search_url,
     get_google_maps_directions_url,
     geocode_location,
