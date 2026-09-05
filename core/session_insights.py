@@ -56,7 +56,10 @@ def generate_session_insights(
     if failed_depth == 0 and reps > 0:
         strengths.append("Full biomechanical depth achieved on all validated reps.")
     if posture_warnings == 0 and total > 0:
-        strengths.append("Rigid spinal neutrality and upright posture preserved throughout.")
+        if ex == "BICEP_CURL":
+            strengths.append("Strict elbow stabilization; elbows remained locked to ribcage.")
+        else:
+            strengths.append("Rigid spinal neutrality and upright posture preserved throughout.")
 
     if not strengths:
         strengths.append("Successfully initiated and completed computer vision tracking session.")
@@ -66,7 +69,10 @@ def generate_session_insights(
     if failed_depth > 0:
         improvements.append(f"Depth Control: Address {failed_depth} incomplete repetitions by lowering fully to parallel.")
     if posture_warnings > 0:
-        improvements.append(f"Spinal Alignment: Correct {posture_warnings} torso inclination cues; brace abdominal wall.")
+        if ex == "BICEP_CURL":
+            improvements.append(f"Elbow Stability: Correct {posture_warnings} unpinned elbow warnings; lock elbows to ribcage.")
+        else:
+            improvements.append(f"Spinal Alignment: Correct {posture_warnings} torso inclination cues; brace abdominal wall.")
     if failed_sitting > 0:
         improvements.append(f"Active Tension: Eliminate {failed_sitting} chair resting events; maintain quad engagement.")
     if reps == 0 and total > 0:
@@ -80,8 +86,12 @@ def generate_session_insights(
         primary_focus = "DEPTH CONTROL"
         recommendation = "Practice a 2-second controlled descent and achieve full parallel crease before driving up."
     elif posture_warnings >= max(failed_depth, failed_sitting) and posture_warnings > 0:
-        primary_focus = "SPINAL ALIGNMENT"
-        recommendation = "Elevate chest, pack lats, and resist excessive forward torso inclination under fatigue."
+        if ex == "BICEP_CURL":
+            primary_focus = "ELBOW STABILITY"
+            recommendation = "Anchor elbows firmly against your ribcage to isolate biceps and eliminate front deltoid swing."
+        else:
+            primary_focus = "SPINAL ALIGNMENT"
+            recommendation = "Elevate chest, pack lats, and resist excessive forward torso inclination under fatigue."
     elif failed_sitting > 0:
         primary_focus = "ACTIVE TENSION"
         recommendation = "Perform touch-and-go repetitions; do not relax stabilizing musculature at the bottom."
