@@ -25,6 +25,11 @@ from .consistency_view import ConsistencyView
 from .trend_view import TrendView
 from .analytics_navigation import AnalyticsNavBar, QuickAnalyticsMenu
 from .analytics_hub import AnalyticsHubDialog
+from .user_dashboard import UserDashboardDialog
+from .user_profile import UserProfileDialog
+from .workout_history import WorkoutHistoryView
+from .nutrition_profile import NutritionProfileDialog
+from .nutrition_dashboard import NutritionDashboardDialog
 
 __all__ = [
     "SidebarFrame",
@@ -54,5 +59,11 @@ __all__ = [
     "TrendView",
     "AnalyticsNavBar",
     "QuickAnalyticsMenu",
-    "AnalyticsHubDialog"
+    "AnalyticsHubDialog",
+    "UserDashboardDialog",
+    "UserProfileDialog",
+    "WorkoutHistoryView",
+    "NutritionProfileDialog",
+    "NutritionDashboardDialog"
 ]
+

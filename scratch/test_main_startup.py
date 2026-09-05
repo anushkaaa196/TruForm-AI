@@ -41,6 +41,13 @@ def test_startup():
     print("Analytics Hub opened and verified from main app.")
     app.analytics_hub.destroy()
 
+    # Test opening Nutrition Dashboard from app (Phase 7C)
+    app._open_nutrition_dashboard()
+    assert app.nutrition_dashboard is not None
+    assert app.nutrition_dashboard.winfo_exists()
+    print("Phase 7C Nutrition Dashboard opened and verified from main app.")
+    app.nutrition_dashboard.destroy()
+
     app.destroy()
     print("Application closed cleanly.")
 

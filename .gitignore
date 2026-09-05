@@ -24,3 +24,8 @@ report_*.png
 summary_*.png
 test_*.png
 *.log
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3

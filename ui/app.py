@@ -36,8 +36,16 @@ from ui.components import (
     ProgressDashboardDialog,
     MovementIntelligenceDialog,
     SIHDemoWindow,
-    AnalyticsHubDialog
+    AnalyticsHubDialog,
+    UserDashboardDialog,
+    UserProfileDialog,
+    NutritionDashboardDialog
 )
+from ui.auth import AuthDialog
+from database.db_manager import init_db
+from database.workout_repository import WorkoutRepository
+from services.user_session import UserSession
+
 
 
 class AIWorkoutUI(ctk.CTk):
@@ -91,6 +99,15 @@ class AIWorkoutUI(ctk.CTk):
         self._last_coach_data: Dict[str, Any] = {}
         self._last_recovery_data: Dict[str, Any] = {}
         self.analytics_hub: Optional[AnalyticsHubDialog] = None
+        self.user_dashboard: Optional[UserDashboardDialog] = None
+        self.nutrition_dashboard: Optional[NutritionDashboardDialog] = None
+        self.auth_dialog: Optional[AuthDialog] = None
+
+        # Ensure database is initialized and active user session exists (fallback to guest for tests)
+        init_db()
+        if not UserSession.get_instance().is_authenticated():
+            UserSession.get_instance().get_or_create_default_user()
+        UserSession.get_instance().add_listener(self._on_user_session_changed)
 
         # Initialize Backend Engine with frame processing callback
         self.engine = WorkoutEngine(on_frame_processed=self._on_frame_processed)
@@ -110,9 +127,13 @@ class AIWorkoutUI(ctk.CTk):
             on_explore_library=self._on_explore_library,
             on_open_analytics_hub=self._open_analytics_hub,
             on_view_plan=self._open_personalized_plan_dialog,
-            on_view_progress=self._open_progress_dashboard_dialog
+            on_view_progress=self._open_progress_dashboard_dialog,
+            on_open_dashboard=self._open_user_dashboard,
+            on_open_nutrition=self._open_nutrition_dashboard,
+            on_logout=self._handle_logout
         )
         self.sidebar.grid(row=0, column=0, padx=(16, 6), pady=(16, 10), sticky="nsew")
+
 
         # 2. Main Live Viewport with Posture Correction Console
         self.viewport = ViewportFrame(
@@ -479,7 +500,14 @@ class AIWorkoutUI(ctk.CTk):
         }
 
     def _open_session_summary_dialog(self, session_data: Dict[str, Any]):
-        """Creates and renders the SessionSummaryDialog on the main UI thread."""
+        """Creates and renders the SessionSummaryDialog on the main UI thread and persists to DB."""
+        try:
+            session_id = self._save_session_to_database(session_data)
+            if session_id:
+                session_data["session_id"] = session_id
+        except Exception as e:
+            print(f"[APP] Session auto-save note: {e}")
+
         try:
             self.summary_dialog = SessionSummaryDialog(
                 self,
@@ -492,6 +520,154 @@ class AIWorkoutUI(ctk.CTk):
             )
         except Exception as e:
             print(f"[APP ERROR] Could not open SessionSummaryDialog: {e}")
+
+    def _save_session_to_database(self, session_data: Dict[str, Any]) -> Optional[int]:
+        """Persists the completed workout debrief into SQLite database."""
+        try:
+            user = UserSession.get_instance().get_current_user()
+            if not user:
+                user = UserSession.get_instance().get_or_create_default_user()
+
+            exercise_name = session_data.get("exercise", getattr(self.engine, "current_exercise", "SQUAT"))
+            duration = session_data.get("duration", self.session_seconds)
+            clean_reps = session_data.get("clean_reps", 0)
+            total_reps = session_data.get("total_reps", clean_reps)
+            form_score = session_data.get("form_score", 100.0)
+            avg_quality = session_data.get("average_quality", form_score)
+            best_rep = session_data.get("best_rep")
+            best_quality = best_rep.get("overall_score", avg_quality) if best_rep else avg_quality
+            consistency = session_data.get("consistency_score", 100.0)
+
+            mv = session_data.get("movement_intelligence") or {}
+            stab_data = mv.get("stability") or {}
+            fat_data = mv.get("fatigue") or {}
+            risk_data = mv.get("risk") or {}
+            trend_data = mv.get("trend") or {}
+
+            stability_score = stab_data.get("stability_score", 90.0)
+            fatigue_level = fat_data.get("fatigue_level", "LOW")
+            risk_level = risk_data.get("risk_level", "LOW")
+            trajectory = trend_data.get("quality_trend", "STABLE")
+
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            started_at = (now - timedelta(seconds=duration)).isoformat()
+            completed_at = now.isoformat()
+
+            rep_records = session_data.get("rep_history") or []
+
+            repo = WorkoutRepository()
+            session_id = repo.save_workout_session(
+                user_id=user.id,
+                exercise_name=exercise_name,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=duration,
+                total_reps=total_reps,
+                clean_reps=clean_reps,
+                average_quality=avg_quality,
+                best_rep_quality=best_quality,
+                consistency_score=consistency,
+                stability_score=stability_score,
+                fatigue_level=fatigue_level,
+                risk_level=risk_level,
+                session_trajectory=trajectory,
+                rep_records=rep_records
+            )
+            print(f"[TRUFORM DB] Workout session #{session_id} saved for {user.name} (user_id={user.id})")
+
+            # Phase 7C: Record post-workout recovery nutrition insight
+            try:
+                from services.nutrition_service import NutritionService
+                NutritionService().record_workout_recovery_insight(user.id, session_data)
+            except Exception as nut_err:
+                print(f"[TRUFORM NUTRITION] Post-workout recovery cache note: {nut_err}")
+
+            return session_id
+        except Exception as e:
+            print(f"[TRUFORM DB ERROR] Failed to persist workout session: {e}")
+            return None
+
+    def _open_user_dashboard(self):
+        """Opens the Athlete Performance & History Dashboard."""
+        if self.user_dashboard and self.user_dashboard.winfo_exists():
+            self.user_dashboard.lift()
+            self.user_dashboard.focus_force()
+            return
+
+        user = UserSession.get_instance().get_current_user()
+        if not user:
+            user = UserSession.get_instance().get_or_create_default_user()
+
+        self.user_dashboard = UserDashboardDialog(
+            self,
+            user=user,
+            on_close_callback=lambda: setattr(self, "user_dashboard", None)
+        )
+
+    def _open_nutrition_dashboard(self):
+        """Opens the Personalized Nutrition & Diet Intelligence Dashboard."""
+        if hasattr(self, "nutrition_dashboard") and self.nutrition_dashboard and self.nutrition_dashboard.winfo_exists():
+            self.nutrition_dashboard.lift()
+            self.nutrition_dashboard.focus_force()
+            return
+
+        user = UserSession.get_instance().get_current_user()
+        if not user:
+            user = UserSession.get_instance().get_or_create_default_user()
+
+        self.nutrition_dashboard = NutritionDashboardDialog(
+            self,
+            user=user,
+            on_close_callback=lambda: setattr(self, "nutrition_dashboard", None)
+        )
+
+    def _handle_logout(self):
+        """Safely logs out active athlete session and displays the authentication dialog."""
+        if self.engine.is_running:
+            self.engine.stop()
+            self._stop_timer()
+            self.sidebar.set_session_state(False)
+            self.viewport.set_active_state(False)
+
+        self._on_reset_metrics()
+        UserSession.get_instance().logout()
+
+        if self.user_dashboard and self.user_dashboard.winfo_exists():
+            try:
+                self.user_dashboard.destroy()
+            except Exception:
+                pass
+            self.user_dashboard = None
+
+        if hasattr(self, "nutrition_dashboard") and self.nutrition_dashboard and self.nutrition_dashboard.winfo_exists():
+            try:
+                self.nutrition_dashboard.destroy()
+            except Exception:
+                pass
+            self.nutrition_dashboard = None
+
+        self.auth_dialog = AuthDialog(
+            self,
+            on_authenticated=self._on_user_authenticated
+        )
+
+    def _on_user_authenticated(self, user):
+        """Callback invoked when user logs in or switches profile."""
+        self.sidebar.set_user(user)
+        self.viewport.update_feedback(
+            f"Athlete profile active: {user.name}. Ready to train.",
+            theme.COLOR_TEAL,
+            self.engine.current_exercise
+        )
+
+    def _on_user_session_changed(self, user):
+        """Updates UI elements when user session changes."""
+        try:
+            self.sidebar.set_user(user)
+        except Exception:
+            pass
+
 
     def _on_export_report(self):
         """Exports session summary image and displays confirmation toast."""
@@ -744,6 +920,10 @@ class AIWorkoutUI(ctk.CTk):
 
     def on_close(self):
         """Tears down backend engine and closes window safely."""
+        try:
+            UserSession.get_instance().remove_listener(self._on_user_session_changed)
+        except Exception:
+            pass
         if self.demo_window:
             try:
                 self.demo_window.destroy()
@@ -754,15 +934,37 @@ class AIWorkoutUI(ctk.CTk):
                 self.analytics_hub.destroy()
             except Exception:
                 pass
+        if self.user_dashboard:
+            try:
+                self.user_dashboard.destroy()
+            except Exception:
+                pass
+        if self.auth_dialog:
+            try:
+                self.auth_dialog.destroy()
+            except Exception:
+                pass
         self.engine.stop()
         self.destroy()
 
 
-def run_app():
-    """Application runner."""
-    app = AIWorkoutUI()
-    app.mainloop()
+
+def run_app(require_auth: bool = False):
+    """Application runner. If require_auth is True and no user is authenticated, launches AuthWindow."""
+    init_db()
+    if require_auth and not UserSession.get_instance().is_authenticated():
+        from ui.auth import AuthWindow
+        def start_main(user):
+            app = AIWorkoutUI()
+            app.mainloop()
+
+        auth_win = AuthWindow(on_authenticated=start_main)
+        auth_win.mainloop()
+    else:
+        app = AIWorkoutUI()
+        app.mainloop()
 
 
 if __name__ == "__main__":
     run_app()
+

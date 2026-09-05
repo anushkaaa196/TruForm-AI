@@ -30,6 +30,9 @@ class SidebarFrame(ctk.CTkFrame):
         on_open_analytics_hub: Optional[Callable[[str], None]] = None,
         on_view_plan: Optional[Callable[[], None]] = None,
         on_view_progress: Optional[Callable[[], None]] = None,
+        on_open_dashboard: Optional[Callable[[], None]] = None,
+        on_open_nutrition: Optional[Callable[[], None]] = None,
+        on_logout: Optional[Callable[[], None]] = None,
         **kwargs
     ):
         super().__init__(
@@ -52,7 +55,11 @@ class SidebarFrame(ctk.CTkFrame):
         self.on_open_analytics_hub = on_open_analytics_hub
         self.on_view_plan = on_view_plan
         self.on_view_progress = on_view_progress
+        self.on_open_dashboard = on_open_dashboard
+        self.on_open_nutrition = on_open_nutrition
+        self.on_logout = on_logout
         self.is_running = False
+
 
         # ======================================================================
         # TWO-PART RESPONSIVE LAYOUT CONFIGURATION
@@ -104,6 +111,17 @@ class SidebarFrame(ctk.CTkFrame):
             text_color=theme.COLOR_TEXT_SECONDARY
         )
         self.subtitle.pack(anchor="w", pady=(1, 0))
+
+        # 1.5 ATHLETE PROFILE BADGE
+        self.user_frame = ctk.CTkFrame(
+            self.scrollable_area,
+            fg_color=theme.COLOR_CARD_BG,
+            corner_radius=10,
+            border_width=1,
+            border_color=theme.COLOR_BORDER
+        )
+        self.user_frame.pack(padx=16, pady=(8, 4), fill="x")
+        self._build_user_section()
 
         self._add_divider(self.scrollable_area)
 
@@ -505,3 +523,103 @@ class SidebarFrame(ctk.CTkFrame):
             self.exercise_opt.set(val)
         self.goal_card.reset()
         self.goal_card.update_progress(0, 100, exercise_name)
+
+    def _build_user_section(self):
+        """Builds the compact athlete identity card in the sidebar."""
+        for w in self.user_frame.winfo_children():
+            w.destroy()
+
+        from services.user_session import UserSession
+        user = UserSession.get_instance().get_current_user()
+        user_name = user.name if user else "Athlete (Guest)"
+        goal = user.fitness_goal if user else "GENERAL_FITNESS"
+
+        # Top row: User name & Goal
+        top_row = ctk.CTkFrame(self.user_frame, fg_color="transparent")
+        top_row.pack(fill="x", padx=10, pady=(8, 2))
+
+        name_lbl = ctk.CTkLabel(
+            top_row,
+            text=f"👤 {user_name}",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=theme.COLOR_TEXT_PRIMARY
+        )
+        name_lbl.pack(side="left")
+
+        goal_lbl = ctk.CTkLabel(
+            top_row,
+            text=goal.replace("_", " "),
+            font=ctk.CTkFont(size=9, weight="bold"),
+            text_color=theme.COLOR_TEAL,
+            fg_color=theme.COLOR_TEAL_MUTED,
+            corner_radius=4,
+            height=18,
+            padx=6
+        )
+        goal_lbl.pack(side="right")
+
+        # Action row 1: Athlete Hubs (Dashboard & Nutrition)
+        act_row1 = ctk.CTkFrame(self.user_frame, fg_color="transparent")
+        act_row1.pack(fill="x", padx=10, pady=(4, 2))
+        act_row1.grid_columnconfigure(0, weight=1)
+        act_row1.grid_columnconfigure(1, weight=1)
+
+        dash_btn = ctk.CTkButton(
+            act_row1,
+            text="MY DASHBOARD",
+            height=26,
+            corner_radius=6,
+            font=ctk.CTkFont(size=9, weight="bold"),
+            fg_color=theme.COLOR_CARD_ELEVATED,
+            hover_color=theme.COLOR_ACCENT,
+            text_color=theme.COLOR_TEXT_PRIMARY,
+            command=self._handle_open_dashboard
+        )
+        dash_btn.grid(row=0, column=0, sticky="ew", padx=(0, 2))
+
+        nutrition_btn = ctk.CTkButton(
+            act_row1,
+            text="🥗 NUTRITION",
+            height=26,
+            corner_radius=6,
+            font=ctk.CTkFont(size=9, weight="bold"),
+            fg_color=theme.COLOR_CARD_ELEVATED,
+            hover_color=theme.COLOR_ACCENT,
+            text_color=theme.COLOR_TEAL,
+            command=self._handle_open_nutrition
+        )
+        nutrition_btn.grid(row=0, column=1, sticky="ew", padx=(2, 0))
+
+        # Action row 2: Session Logout
+        act_row2 = ctk.CTkFrame(self.user_frame, fg_color="transparent")
+        act_row2.pack(fill="x", padx=10, pady=(2, 8))
+
+        logout_btn = ctk.CTkButton(
+            act_row2,
+            text="LOGOUT",
+            height=24,
+            corner_radius=6,
+            font=ctk.CTkFont(size=9, weight="bold"),
+            fg_color=theme.COLOR_PANEL_BG,
+            hover_color=theme.COLOR_ALERT,
+            text_color=theme.COLOR_TEXT_MUTED,
+            command=self._handle_logout
+        )
+        logout_btn.pack(fill="x")
+
+    def _handle_open_dashboard(self):
+        if self.on_open_dashboard:
+            self.on_open_dashboard()
+
+    def _handle_open_nutrition(self):
+        if self.on_open_nutrition:
+            self.on_open_nutrition()
+
+    def _handle_logout(self):
+        if self.on_logout:
+            self.on_logout()
+
+    def set_user(self, user=None):
+        """Refreshes the user profile badge display."""
+        self._build_user_section()
+

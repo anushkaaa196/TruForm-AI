@@ -776,7 +776,23 @@ def generate_report_image(
     # 4. Save and Return Output Path
     # --------------------------------------------------------------------------
     if output_path is None:
-        output_path = f"report_{exercise_name}_{int(time.time())}.png"
+        try:
+            from services.user_session import UserSession
+            user = UserSession.get_instance().get_current_user()
+            if user:
+                user_dir = os.path.join("reports", f"user_{user.id}")
+                os.makedirs(user_dir, exist_ok=True)
+                output_path = os.path.join(user_dir, f"report_{exercise_name}_{int(time.time())}.png")
+            else:
+                output_path = f"report_{exercise_name}_{int(time.time())}.png"
+        except Exception:
+            output_path = f"report_{exercise_name}_{int(time.time())}.png"
+    else:
+        # Ensure parent dir exists if output_path includes subdirectories
+        out_parent = os.path.dirname(output_path)
+        if out_parent:
+            os.makedirs(out_parent, exist_ok=True)
 
     img.save(output_path, format="PNG", optimize=True)
     return output_path
+
