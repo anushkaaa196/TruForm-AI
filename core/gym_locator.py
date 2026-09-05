@@ -15,15 +15,16 @@ _LOCATION_CACHE: Optional[Dict[str, Any]] = None
 _GYM_RESULTS_CACHE: Dict[str, List[Dict[str, Any]]] = {}
 _GEOCODE_CACHE: Dict[str, Dict[str, Any]] = {}
 
-# Default fallback location: Greater Noida, Uttar Pradesh (default project context)
+# Default location locked to Sector Alpha 2, Greater Noida (NIET project context)
 DEFAULT_LOCATION = {
-    "lat": 28.4744,
-    "lon": 77.5040,
-    "city": "Greater Noida",
+    "lat": 28.47856,
+    "lon": 77.51782,
+    "city": "Sector Alpha 2, Greater Noida",
     "region": "Uttar Pradesh",
     "country": "India",
-    "ip": "Local Device",
-    "is_fallback": True
+    "ip": "Local Default",
+    "is_fallback": False,
+    "is_user_set": True
 }
 
 
@@ -63,9 +64,14 @@ def get_cached_location() -> Optional[Dict[str, Any]]:
     return None
 
 
-def save_cached_location(location: Dict[str, Any]):
-    """Caches device location to memory and disk for instant retrieval."""
+def save_cached_location(location: Dict[str, Any], is_user_action: bool = False):
+    """Caches device location to memory and disk. Protects user-set location from IP overwrites."""
     global _LOCATION_CACHE
+    existing = get_cached_location()
+    # Protect user-selected location from being silently overwritten by approximate IP geolocation
+    if existing and existing.get("is_user_set") and not is_user_action and not location.get("is_user_set"):
+        return
+
     _LOCATION_CACHE = dict(location)
     try:
         with open(_CACHE_PATH, "w", encoding="utf-8") as f:
@@ -74,13 +80,30 @@ def save_cached_location(location: Dict[str, Any]):
         pass
 
 
-def get_device_location(force_refresh: bool = False) -> Dict[str, Any]:
+def set_user_preferred_location(location: Dict[str, Any]) -> Dict[str, Any]:
+    """Explicitly locks and persists the user's chosen location, preventing IP auto-detect drift."""
+    loc = dict(location)
+    loc["is_user_set"] = True
+    loc["is_fallback"] = False
+    save_cached_location(loc, is_user_action=True)
+    return loc
+
+
+def get_device_location(force_refresh: bool = False, allow_ip_override: bool = False) -> Dict[str, Any]:
     """
-    Resolves current device geographical coordinates and location details.
-    Uses concurrent racing across IP geolocation providers with fast-fail,
-    in-memory caching, and local disk persistence for lightning-fast (<250ms) execution.
+    Resolves current device coordinates.
+    Prioritizes user-set/preferred location to prevent inaccurate ISP network drift.
+    Queries concurrent IP providers with fast racing only when needed.
     """
     global _LOCATION_CACHE
+
+    # 1. If user already has a saved preferred location, always honor it
+    if not allow_ip_override:
+        cached = get_cached_location()
+        if cached and cached.get("is_user_set"):
+            _LOCATION_CACHE = cached
+            return dict(cached)
+
     if not force_refresh and _LOCATION_CACHE is not None:
         return dict(_LOCATION_CACHE)
 
@@ -107,7 +130,8 @@ def get_device_location(force_refresh: bool = False) -> Dict[str, Any]:
                     "region": payload.get("regionName", ""),
                     "country": payload.get("country", ""),
                     "ip": payload.get("query", ""),
-                    "is_fallback": False
+                    "is_fallback": False,
+                    "is_user_set": False
                 }
         return None
 
@@ -123,7 +147,8 @@ def get_device_location(force_refresh: bool = False) -> Dict[str, Any]:
                     "region": payload.get("regionName", ""),
                     "country": payload.get("countryName", ""),
                     "ip": payload.get("ipAddress", ""),
-                    "is_fallback": False
+                    "is_fallback": False,
+                    "is_user_set": False
                 }
         return None
 
@@ -139,7 +164,8 @@ def get_device_location(force_refresh: bool = False) -> Dict[str, Any]:
                     "region": payload.get("region", ""),
                     "country": payload.get("country_name", ""),
                     "ip": payload.get("ip", ""),
-                    "is_fallback": False
+                    "is_fallback": False,
+                    "is_user_set": False
                 }
         return None
 
@@ -153,7 +179,7 @@ def get_device_location(force_refresh: bool = False) -> Dict[str, Any]:
                     res = future.result()
                     if res and "lat" in res and "lon" in res:
                         _LOCATION_CACHE = res
-                        save_cached_location(res)
+                        save_cached_location(res, is_user_action=allow_ip_override)
                         return dict(res)
                 except Exception:
                     continue
@@ -168,6 +194,7 @@ def get_device_location(force_refresh: bool = False) -> Dict[str, Any]:
         return cached
 
     return dict(DEFAULT_LOCATION)
+
 
 
 

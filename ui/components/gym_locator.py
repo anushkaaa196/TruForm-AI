@@ -12,6 +12,7 @@ from ui import theme
 from core.gym_locator import (
     get_device_location,
     get_cached_location,
+    set_user_preferred_location,
     DEFAULT_LOCATION,
     get_local_verified_gyms,
     geocode_location,
@@ -20,6 +21,7 @@ from core.gym_locator import (
     get_google_maps_directions_url,
     open_url_in_browser
 )
+
 
 
 class GymLocatorDialog(ctk.CTkToplevel):
@@ -160,7 +162,7 @@ class GymLocatorDialog(ctk.CTkToplevel):
         ctrl_card.grid(row=1, column=0, sticky="ew", pady=(0, 14))
         ctrl_card.grid_columnconfigure(1, weight=1)
 
-        # Row 1: Detected Location & Auto-detect button
+        # Row 1: Detected Location & Actions (Set Default + Auto-detect IP)
         loc_row = ctk.CTkFrame(ctrl_card, fg_color="transparent")
         loc_row.pack(fill="x", padx=16, pady=(12, 8))
         loc_row.grid_columnconfigure(0, weight=1)
@@ -173,20 +175,39 @@ class GymLocatorDialog(ctk.CTkToplevel):
         )
         self.loc_label.grid(row=0, column=0, sticky="w")
 
-        self.btn_detect = ctk.CTkButton(
-            loc_row,
-            text="🔄 Auto-Detect Location",
-            font=ctk.CTkFont(size=11),
+        btn_action_box = ctk.CTkFrame(loc_row, fg_color="transparent")
+        btn_action_box.grid(row=0, column=1, sticky="e")
+
+        self.btn_set_default = ctk.CTkButton(
+            btn_action_box,
+            text="⭐ Set as Default",
+            font=ctk.CTkFont(size=11, weight="bold"),
             height=28,
             corner_radius=6,
             fg_color=theme.COLOR_CARD_ELEVATED,
             hover_color=theme.COLOR_TEAL,
             border_width=1,
             border_color=theme.COLOR_BORDER,
+            text_color=theme.COLOR_TEXT_PRIMARY,
+            command=self._on_set_default_click
+        )
+        self.btn_set_default.pack(side="left", padx=(0, 8))
+
+        self.btn_detect = ctk.CTkButton(
+            btn_action_box,
+            text="🔄 Auto-Detect IP",
+            font=ctk.CTkFont(size=11),
+            height=28,
+            corner_radius=6,
+            fg_color=theme.COLOR_CARD_ELEVATED,
+            hover_color=theme.COLOR_CARD_HOVER,
+            border_width=1,
+            border_color=theme.COLOR_BORDER,
             text_color=theme.COLOR_TEXT_SECONDARY,
             command=self._on_auto_detect_click
         )
-        self.btn_detect.grid(row=0, column=1, sticky="e", padx=(10, 0))
+        self.btn_detect.pack(side="left")
+
 
         # Row 2: Search input + Radius selector + Search button
         filter_row = ctk.CTkFrame(ctrl_card, fg_color="transparent")
@@ -336,14 +357,12 @@ class GymLocatorDialog(ctk.CTkToplevel):
     def _format_location_string(self) -> str:
         """Formats the current coordinates into a human-readable display string."""
         city = self.current_location.get("city") or "Detected Location"
-        region = self.current_location.get("region", "")
-        country = self.current_location.get("country", "")
         lat = self.current_location.get("lat", 0.0)
         lon = self.current_location.get("lon", 0.0)
+        is_user_set = self.current_location.get("is_user_set", False)
+        status_tag = "⭐ Verified Default" if is_user_set else "⚠️ Approximate ISP IP"
+        return f"📍 Location: {city} ({lat:.3f}° N, {lon:.3f}° E)  •  [{status_tag}]"
 
-        loc_parts = [p for p in [city, region, country] if p]
-        loc_str = ", ".join(loc_parts) if loc_parts else "Device Location"
-        return f"📍 Location: {loc_str} ({lat:.3f}° N, {lon:.3f}° E)"
 
     def _trigger_fetch_gyms(self):
         """
@@ -610,11 +629,21 @@ class GymLocatorDialog(ctk.CTkToplevel):
         except Exception:
             pass
 
+    def _on_set_default_click(self):
+        """Explicitly locks and saves current active location as user's permanent default."""
+        saved = set_user_preferred_location(self.current_location)
+        self.current_location = saved
+        self.loc_label.configure(text=self._format_location_string())
+        self.btn_set_default.configure(text="✓ Saved as Default", fg_color=theme.COLOR_SUCCESS)
+        self.after(2500, lambda: self.btn_set_default.configure(text="⭐ Set as Default", fg_color=theme.COLOR_CARD_ELEVATED))
+
     def _on_auto_detect_click(self):
-        """Re-runs device IP geolocation detection."""
+        """Re-runs device IP geolocation detection upon explicit user click."""
+        self.btn_detect.configure(text="Detecting...")
         def worker():
-            loc = get_device_location()
+            loc = get_device_location(force_refresh=True, allow_ip_override=True)
             def update_ui():
+                self.btn_detect.configure(text="🔄 Auto-Detect IP")
                 self.current_location = loc
                 self.loc_label.configure(text=self._format_location_string())
                 self._trigger_fetch_gyms()
@@ -635,7 +664,7 @@ class GymLocatorDialog(ctk.CTkToplevel):
             def update_ui():
                 self.btn_search.configure(text="🔍 Search Area")
                 if res:
-                    self.current_location = res
+                    self.current_location = set_user_preferred_location(res)
                     self.loc_label.configure(text=self._format_location_string())
                     self._trigger_fetch_gyms()
                 else:
@@ -647,10 +676,13 @@ class GymLocatorDialog(ctk.CTkToplevel):
         threading.Thread(target=worker, daemon=True).start()
 
     def _start_background_sync(self):
-        """Asynchronously checks for fresh device location in background without UI lag."""
+        """Asynchronously checks for fresh device location only if user hasn't set a preferred location."""
+        if self.current_location.get("is_user_set"):
+            return  # Honor user's preferred location, never overwrite with inaccurate ISP IP
+
         def worker():
-            fresh_loc = get_device_location()
-            if fresh_loc and not fresh_loc.get("is_fallback"):
+            fresh_loc = get_device_location(allow_ip_override=False)
+            if fresh_loc and not fresh_loc.get("is_fallback") and not fresh_loc.get("is_user_set"):
                 old_lat = self.current_location.get("lat", 0.0)
                 old_lon = self.current_location.get("lon", 0.0)
                 if abs(fresh_loc["lat"] - old_lat) > 0.01 or abs(fresh_loc["lon"] - old_lon) > 0.01:
@@ -667,11 +699,12 @@ class GymLocatorDialog(ctk.CTkToplevel):
         self.search_entry.insert(0, area_name)
         res = geocode_location(area_name)
         if res:
-            self.current_location = res
+            self.current_location = set_user_preferred_location(res)
             self.loc_label.configure(text=self._format_location_string())
             self._trigger_fetch_gyms()
         else:
             self._on_manual_search()
+
 
 
     def _render_gmaps_discovery_card(self, city_name: str):
