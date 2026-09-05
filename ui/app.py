@@ -6,6 +6,7 @@ _ROOT = str(Path(__file__).resolve().parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+import threading
 from typing import Dict, Any, Optional
 import cv2
 import numpy as np
@@ -24,7 +25,9 @@ from core.risk_intelligence import evaluate_movement_risk
 from core.adaptive_coaching import get_adaptive_coaching
 from core.recovery_recommendations import get_recovery_recommendations
 from core.performance_trends import analyze_performance_trends
+from core.gym_locator import warm_gym_locator_cache
 from ui import theme
+
 from ui.components import (
     SidebarFrame,
     ViewportFrame,
@@ -39,7 +42,8 @@ from ui.components import (
     AnalyticsHubDialog,
     UserDashboardDialog,
     UserProfileDialog,
-    NutritionDashboardDialog
+    NutritionDashboardDialog,
+    GymLocatorDialog,
 )
 from ui.auth import AuthDialog
 from database.db_manager import init_db
@@ -97,16 +101,25 @@ class AIWorkoutUI(ctk.CTk):
         self._last_fatigue_data: Dict[str, Any] = {}
         self._last_risk_data: Dict[str, Any] = {}
         self._last_coach_data: Dict[str, Any] = {}
-        self._last_recovery_data: Dict[str, Any] = {}
         self.analytics_hub: Optional[AnalyticsHubDialog] = None
+
+        # Phase 7 User Authentication, Dashboard, Nutrition & Gym Locator
         self.user_dashboard: Optional[UserDashboardDialog] = None
         self.nutrition_dashboard: Optional[NutritionDashboardDialog] = None
         self.auth_dialog: Optional[AuthDialog] = None
+        self.gym_dialog: Optional[GymLocatorDialog] = None
 
-        # Ensure database is initialized and active user session exists (fallback to guest for tests)
+        # Pre-warm device location and gym cache asynchronously for 0 ms opening
+        threading.Thread(target=warm_gym_locator_cache, daemon=True).start()
+
+        # Initialize SQLite database
         init_db()
+
+        # Ensure an active user session exists (fallback to guest for tests)
         if not UserSession.get_instance().is_authenticated():
             UserSession.get_instance().get_or_create_default_user()
+
+        # Listen for authentication/session changes
         UserSession.get_instance().add_listener(self._on_user_session_changed)
 
         # Initialize Backend Engine with frame processing callback
@@ -130,7 +143,8 @@ class AIWorkoutUI(ctk.CTk):
             on_view_progress=self._open_progress_dashboard_dialog,
             on_open_dashboard=self._open_user_dashboard,
             on_open_nutrition=self._open_nutrition_dashboard,
-            on_logout=self._handle_logout
+            on_logout=self._handle_logout,
+            on_find_gyms=self._open_gym_locator_dialog
         )
         self.sidebar.grid(row=0, column=0, padx=(16, 6), pady=(16, 10), sticky="nsew")
 
@@ -242,6 +256,15 @@ class AIWorkoutUI(ctk.CTk):
             coach_data=self._last_coach_data,
             recovery_data=self._last_recovery_data
         )
+
+    def _open_gym_locator_dialog(self):
+        """Opens or focuses the nearby gym and fitness facility locator modal dialog."""
+        if self.gym_dialog and self.gym_dialog.winfo_exists():
+            self.gym_dialog.lift()
+            self.gym_dialog.focus_force()
+            return
+        self.gym_dialog = GymLocatorDialog(self)
+
 
     def _open_analytics_hub(self, initial_tab: str = "OVERVIEW"):
         """Opens or focuses the dedicated Advanced Performance Analytics Hub."""
@@ -646,6 +669,13 @@ class AIWorkoutUI(ctk.CTk):
             except Exception:
                 pass
             self.nutrition_dashboard = None
+
+        if hasattr(self, "gym_dialog") and self.gym_dialog and self.gym_dialog.winfo_exists():
+            try:
+                self.gym_dialog.destroy()
+            except Exception:
+                pass
+            self.gym_dialog = None
 
         self.auth_dialog = AuthDialog(
             self,

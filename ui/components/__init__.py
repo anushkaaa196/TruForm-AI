@@ -30,6 +30,8 @@ from .user_profile import UserProfileDialog
 from .workout_history import WorkoutHistoryView
 from .nutrition_profile import NutritionProfileDialog
 from .nutrition_dashboard import NutritionDashboardDialog
+from .gym_locator import GymLocatorDialog
+
 
 __all__ = [
     "SidebarFrame",
@@ -64,6 +66,7 @@ __all__ = [
     "UserProfileDialog",
     "WorkoutHistoryView",
     "NutritionProfileDialog",
-    "NutritionDashboardDialog"
+    "NutritionDashboardDialog",
+    "GymLocatorDialog"
 ]
 

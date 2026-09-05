@@ -33,6 +33,7 @@ class SidebarFrame(ctk.CTkFrame):
         on_open_dashboard: Optional[Callable[[], None]] = None,
         on_open_nutrition: Optional[Callable[[], None]] = None,
         on_logout: Optional[Callable[[], None]] = None,
+        on_find_gyms: Optional[Callable[[], None]] = None,
         **kwargs
     ):
         super().__init__(
@@ -58,6 +59,7 @@ class SidebarFrame(ctk.CTkFrame):
         self.on_open_dashboard = on_open_dashboard
         self.on_open_nutrition = on_open_nutrition
         self.on_logout = on_logout
+        self.on_find_gyms = on_find_gyms
         self.is_running = False
 
 
@@ -172,6 +174,25 @@ class SidebarFrame(ctk.CTkFrame):
             self.btn_explore.pack(fill="x", pady=(0, 6))
         else:
             self.btn_explore = None
+
+        # Gym Locator Button
+        if self.on_find_gyms:
+            self.btn_gyms = ctk.CTkButton(
+                self.exercise_frame,
+                text="📍 FIND NEARBY GYMS",
+                font=ctk.CTkFont(size=theme.FONT_BADGE[1], weight=theme.FONT_BADGE[2]),
+                height=28,
+                corner_radius=6,
+                fg_color=theme.COLOR_CARD_BG,
+                hover_color=theme.COLOR_CARD_ELEVATED,
+                border_width=1,
+                border_color=theme.COLOR_BORDER,
+                text_color=theme.COLOR_TEAL,
+                command=self.on_find_gyms
+            )
+            self.btn_gyms.pack(fill="x", pady=(0, 6))
+        else:
+            self.btn_gyms = None
 
         # Quick Analytics Dropdown Selector
         self.quick_analytics = QuickAnalyticsMenu(

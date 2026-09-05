@@ -149,8 +149,17 @@ def analyze_repetition(
         if arm_delta > 1:
             control_score = max(50, control_score - 10)
             issues.append(f"Bilateral arm imbalance ({l_reps} L vs {r_reps} R).")
-        elif is_clean:
+        elif is_clean and not posture_warning_occurred:
             strengths.append("Symmetric bilateral arm contraction verified.")
+
+        if posture_warning_occurred:
+            alignment_score = max(50, alignment_score - 15)
+            stability_score = max(50, stability_score - 10)
+            overall_score = max(50, overall_score - 12)
+            issues.append("Elbow drift detected: Keep elbows pinned firmly against your ribcage.")
+            primary_focus = "Pin elbows strictly to ribcage; eliminate forward arm swinging."
+            if overall_score < 75:
+                status = "NEEDS_IMPROVEMENT"
 
     # Status Pill Badges
     if status == "EXCELLENT":

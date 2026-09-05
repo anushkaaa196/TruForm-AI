@@ -96,11 +96,24 @@ def extract_exercise_data(
         l_angle = calculate_angle(kpts[5], kpts[7], kpts[9]) if l_valid else None
         r_angle = calculate_angle(kpts[6], kpts[8], kpts[10]) if r_valid else None
 
+        # Torso anchor points to measure elbow-to-ribcage lock and drift
+        l_hip = kpts[11] if confs[11] >= 0.20 else np.array([kpts[5][0], kpts[5][1] + 200.0])
+        r_hip = kpts[12] if confs[12] >= 0.20 else np.array([kpts[6][0], kpts[6][1] + 200.0])
+
+        # Upper arm angle relative to torso (angle Hip - Shoulder - Elbow)
+        # When elbows are pinned to ribcage, angle is typically 5-20 deg.
+        # When elbows swing forward or flare out, angle increases beyond 28-30 deg.
+        l_shoulder_angle = calculate_angle(l_hip, kpts[5], kpts[7]) if l_valid else None
+        r_shoulder_angle = calculate_angle(r_hip, kpts[6], kpts[8]) if r_valid else None
+
         result["valid"] = True
         result["l_valid"] = l_valid
         result["r_valid"] = r_valid
         result["l_angle"] = l_angle
         result["r_angle"] = r_angle
+        result["l_shoulder_angle"] = l_shoulder_angle
+        result["r_shoulder_angle"] = r_shoulder_angle
+        result["shoulder_angle"] = l_shoulder_angle if l_valid else r_shoulder_angle
 
         if l_valid and r_valid:
             result["side"] = "Both"
@@ -112,18 +125,21 @@ def extract_exercise_data(
         valid_angles = [a for a in [l_angle, r_angle] if a is not None]
         result["angle"] = min(valid_angles) if valid_angles else 180.0
 
-        # Points for both arms
+        # Points for both arms and torso anchors
         result["points"] = {
             "l_shoulder": kpts[5],
             "l_elbow": kpts[7],
             "l_wrist": kpts[9],
+            "l_hip": l_hip,
             "r_shoulder": kpts[6],
             "r_elbow": kpts[8],
             "r_wrist": kpts[10],
+            "r_hip": r_hip,
             # Fallbacks for generic single-limb drawing
             "shoulder": kpts[5] if l_valid else kpts[6],
             "elbow": kpts[7] if l_valid else kpts[8],
-            "wrist": kpts[9] if l_valid else kpts[10]
+            "wrist": kpts[9] if l_valid else kpts[10],
+            "hip": l_hip if l_valid else r_hip
         }
         return result
 

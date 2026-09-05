@@ -53,6 +53,15 @@ class LimbTracker:
         self.current_angle = 180.0
         self.smoothed_angle = 180.0
 
+        # Shoulder / Upper Arm tracking for elbow stability & ribcage locking
+        self.shoulder_filter = LowPassFilter(cutoff_samples=5)
+        self.standing_shoulder_baseline = None
+        self.current_shoulder_angle = 0.0
+        self.smoothed_shoulder_angle = 0.0
+        self.is_elbow_locked = True
+        self.posture_fault_in_rep = False
+        self.has_warned_in_rep = False
+
     def reset(self):
         """Resets limb tracking state and rep counter."""
         self.state = -1
@@ -64,18 +73,32 @@ class LimbTracker:
         self.current_angle = 180.0
         self.smoothed_angle = 180.0
 
+        self.shoulder_filter.clear()
+        self.standing_shoulder_baseline = None
+        self.current_shoulder_angle = 0.0
+        self.smoothed_shoulder_angle = 0.0
+        self.is_elbow_locked = True
+        self.posture_fault_in_rep = False
+        self.has_warned_in_rep = False
+
     def update(
         self,
         raw_angle: float,
         cfg: Dict[str, Any],
-        calib_target_frames: int
+        calib_target_frames: int,
+        raw_shoulder_angle: Optional[float] = None
     ) -> Tuple[bool, Optional[str]]:
         """
-        Processes a new raw joint angle for this limb.
+        Processes a new raw joint angle for this limb and checks elbow stabilization.
         Returns (rep_counted: bool, message: Optional[str]).
         """
         self.current_angle = raw_angle
         self.smoothed_angle = self.filter.update(raw_angle)
+
+        if raw_shoulder_angle is not None:
+            self.current_shoulder_angle = raw_shoulder_angle
+            self.smoothed_shoulder_angle = self.shoulder_filter.update(raw_shoulder_angle)
+
         rep_counted = False
         msg = None
 
@@ -90,6 +113,12 @@ class LimbTracker:
                     if self.standing_baseline is None
                     else 0.8 * self.standing_baseline + 0.2 * self.smoothed_angle
                 )
+                if raw_shoulder_angle is not None:
+                    self.standing_shoulder_baseline = (
+                        self.smoothed_shoulder_angle
+                        if self.standing_shoulder_baseline is None
+                        else 0.8 * self.standing_shoulder_baseline + 0.2 * self.smoothed_shoulder_angle
+                    )
                 if self.calibration_frames >= calib_target_frames:
                     self.state = 0  # READY
                     msg = f"{self.name} arm calibrated!"
@@ -101,9 +130,26 @@ class LimbTracker:
             if self.smoothed_angle < cfg["down_thresh"]:
                 self.state = 1  # CURLING UP
                 self.depth_achieved = False
+                self.posture_fault_in_rep = False
+                self.has_warned_in_rep = False
+
+        # Check elbow lock during active curl phases
+        if self.state in (1, 2, 3) and cfg.get("check_elbow_lock", True) and raw_shoulder_angle is not None:
+            max_drift = cfg.get("max_elbow_drift_angle", 28.0)
+            baseline = self.standing_shoulder_baseline if self.standing_shoulder_baseline is not None else 10.0
+            drift_above_base = max(0.0, self.smoothed_shoulder_angle - baseline)
+
+            # Flag fault if upper arm swings forward/outward beyond threshold or drifts excessively from rest
+            if self.smoothed_shoulder_angle > max_drift or drift_above_base > 18.0:
+                self.is_elbow_locked = False
+                self.posture_fault_in_rep = True
+            else:
+                self.is_elbow_locked = True
+        else:
+            self.is_elbow_locked = True
 
         # STATE_DESCENDING / CURLING UP (1)
-        elif self.state == 1:
+        if self.state == 1:
             if self.smoothed_angle <= cfg["target_angle"]:
                 self.depth_achieved = True
                 self.state = 2  # PEAK CONTRACTION
@@ -124,7 +170,10 @@ class LimbTracker:
                 if self.depth_achieved:
                     self.reps += 1
                     rep_counted = True
-                    msg = f"{self.name} Arm Rep #{self.reps} Counted!"
+                    if self.posture_fault_in_rep:
+                        msg = f"{self.name} Arm Rep #{self.reps} (Form Warning: Unpinned Elbow)"
+                    else:
+                        msg = f"{self.name} Arm Clean Rep #{self.reps} Counted!"
                 self.depth_achieved = False
 
         return rep_counted, msg
@@ -366,30 +415,57 @@ class WorkoutEngine:
 
                         if data.get("l_valid") and data.get("l_angle") is not None:
                             l_rep, l_msg = self.left_arm.update(
-                                data["l_angle"], cfg, CALIBRATION_TARGET_FRAMES
+                                data["l_angle"],
+                                cfg,
+                                CALIBRATION_TARGET_FRAMES,
+                                data.get("l_shoulder_angle")
                             )
 
                         if data.get("r_valid") and data.get("r_angle") is not None:
                             r_rep, r_msg = self.right_arm.update(
-                                data["r_angle"], cfg, CALIBRATION_TARGET_FRAMES
+                                data["r_angle"],
+                                cfg,
+                                CALIBRATION_TARGET_FRAMES,
+                                data.get("r_shoulder_angle")
                             )
+
+                        # Check for active elbow drift across moving arms
+                        active_arms = [arm for arm in (self.left_arm, self.right_arm) if arm.state in (1, 2, 3)]
+                        unpinned_arms = [arm for arm in active_arms if not arm.is_elbow_locked]
+
+                        for arm in unpinned_arms:
+                            if not arm.has_warned_in_rep:
+                                self.posture_warnings += 1
+                                arm.has_warned_in_rep = True
 
                         if l_rep or r_rep:
                             self.clean_reps = self.left_arm.reps + self.right_arm.reps
-                            feedback_msg = l_msg or r_msg or "Clean Rep Counted!"
-                            feedback_color = "#00E676"
+                            rep_fault = (l_rep and self.left_arm.posture_fault_in_rep) or (r_rep and self.right_arm.posture_fault_in_rep)
+                            if rep_fault:
+                                feedback_msg = l_msg or r_msg or "Rep Counted with Warning: Keep elbows pinned at sides"
+                                feedback_color = "#FF9100"
+                            else:
+                                feedback_msg = l_msg or r_msg or "Clean Rep Counted!"
+                                feedback_color = "#00E676"
                         else:
                             # Contextual feedback for curls
-                            active_state = max(self.left_arm.state, self.right_arm.state)
-                            if active_state == 2:
-                                feedback_msg = "Peak Contraction Reached! Lower weight smoothly"
-                                feedback_color = "#00FFC8"
-                            elif active_state == 1:
-                                feedback_msg = "Curling up... Reach target <= 65 deg"
-                            elif active_state == 0:
-                                feedback_msg = f"Ready! Begin curling. Total Reps: {self.clean_reps}"
-                            elif active_state == -1:
-                                feedback_msg = "Calibrating arm position... Hang arms relaxed"
+                            if unpinned_arms:
+                                feedback_msg = "Warning: Keep elbows pinned at sides!"
+                                feedback_color = "#FF9100"
+                            else:
+                                active_state = max(self.left_arm.state, self.right_arm.state)
+                                if active_state == 2:
+                                    feedback_msg = "Peak Contraction Reached! Lower weight smoothly"
+                                    feedback_color = "#00FFC8"
+                                elif active_state == 1:
+                                    feedback_msg = "Curling up... Keep elbows locked to ribcage"
+                                    feedback_color = "#00FFC8"
+                                elif active_state == 0:
+                                    feedback_msg = f"Ready! Begin curling. Total Reps: {self.clean_reps}"
+                                    feedback_color = "#00E676"
+                                elif active_state == -1:
+                                    feedback_msg = "Calibrating arm position... Hang arms relaxed"
+                                    feedback_color = "#FF9100"
 
                         self._draw_bicep_curl_overlay(annotated_frame, data, cfg)
 
@@ -534,13 +610,13 @@ class WorkoutEngine:
         data: Dict[str, Any],
         cfg: Dict[str, Any]
     ):
-        """Renders skeletons, angle gauges, and rep counts for BOTH arms."""
+        """Renders skeletons, angle gauges, elbow lock status, and rep counts for BOTH arms."""
         pts = data["points"]
         target = int(cfg["target_angle"])
 
-        # Top HUD Panel for Dual Arms
-        cv2.rectangle(frame, (15, 15), (460, 85), (25, 25, 32), -1)
-        cv2.rectangle(frame, (15, 15), (460, 85), (60, 60, 75), 1)
+        # Top HUD Panel for Dual Arms (height 100px)
+        cv2.rectangle(frame, (15, 15), (480, 100), (25, 25, 32), -1)
+        cv2.rectangle(frame, (15, 15), (480, 100), (60, 60, 75), 1)
 
         # Title
         cv2.putText(
@@ -559,9 +635,24 @@ class WorkoutEngine:
         l_color = (0, 255, 0) if self.left_arm.smoothed_angle <= target else (255, 255, 255)
         r_color = (0, 255, 0) if self.right_arm.smoothed_angle <= target else (255, 255, 255)
 
-        cv2.putText(frame, l_str, (25, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.48, l_color, 1)
-        cv2.putText(frame, r_str, (250, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.48, r_color, 1)
-        cv2.putText(frame, f"Total Clean Reps: {self.clean_reps}", (25, 78), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 200), 1)
+        cv2.putText(frame, l_str, (25, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.46, l_color, 1)
+        cv2.putText(frame, r_str, (250, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.46, r_color, 1)
+        cv2.putText(frame, f"Total Clean Reps: {self.clean_reps}", (25, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (0, 255, 200), 1)
+
+        # Elbow Lock / Drift Status Indicator
+        both_locked = self.left_arm.is_elbow_locked and self.right_arm.is_elbow_locked
+        if both_locked:
+            lock_text = f"Elbows: PINNED TO RIBS | Posture Warnings: {self.posture_warnings}"
+            lock_color = (0, 255, 150)
+        else:
+            fault_sides = []
+            if not self.left_arm.is_elbow_locked:
+                fault_sides.append("L-DRIFT")
+            if not self.right_arm.is_elbow_locked:
+                fault_sides.append("R-DRIFT")
+            lock_text = f"Elbows: {' '.join(fault_sides)} (LOCK TO RIBS) | Warns: {self.posture_warnings}"
+            lock_color = (0, 80, 255)
+        cv2.putText(frame, lock_text, (25, 92), cv2.FONT_HERSHEY_SIMPLEX, 0.40, lock_color, 1)
 
         # Draw Left Arm
         if data.get("l_valid") and "l_shoulder" in pts and "l_elbow" in pts and "l_wrist" in pts:
@@ -569,19 +660,40 @@ class WorkoutEngine:
             el = (int(pts["l_elbow"][0]), int(pts["l_elbow"][1]))
             wr = (int(pts["l_wrist"][0]), int(pts["l_wrist"][1]))
 
-            arm_color = (0, 255, 0) if self.left_arm.smoothed_angle <= target else (0, 255, 200)
-            cv2.line(frame, sh, el, (255, 140, 0), 3)
-            cv2.line(frame, el, wr, arm_color, 3)
-            cv2.circle(frame, el, 8, arm_color, -1)
-            cv2.circle(frame, wr, 5, arm_color, -1)
+            # Forearm color (flexion)
+            forearm_color = (0, 255, 0) if self.left_arm.smoothed_angle <= target else (0, 255, 200)
+
+            # Upper arm color (elbow locked vs drifted)
+            if not self.left_arm.is_elbow_locked and self.left_arm.state in (1, 2, 3):
+                upper_arm_color = (0, 69, 255)  # Bright orange/red warning
+                upper_arm_width = 4
+                drift_label = f"L SWING ({int(self.left_arm.smoothed_shoulder_angle)} deg)"
+            else:
+                upper_arm_color = (255, 140, 0)  # Pinned cyan/blue
+                upper_arm_width = 3
+                drift_label = f"L Pinned ({int(self.left_arm.smoothed_shoulder_angle)} deg)"
+
+            cv2.line(frame, sh, el, upper_arm_color, upper_arm_width)
+            cv2.line(frame, el, wr, forearm_color, 3)
+            cv2.circle(frame, el, 8, upper_arm_color, -1)
+            cv2.circle(frame, wr, 5, forearm_color, -1)
             cv2.putText(
                 frame,
                 f"L: {int(self.left_arm.smoothed_angle)} deg",
-                (el[0] - 50, el[1] - 12),
+                (el[0] - 65, el[1] - 12),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                arm_color,
+                0.50,
+                forearm_color,
                 2
+            )
+            cv2.putText(
+                frame,
+                drift_label,
+                (sh[0] - 90, (sh[1] + el[1]) // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.38,
+                upper_arm_color,
+                1
             )
 
         # Draw Right Arm
@@ -590,19 +702,38 @@ class WorkoutEngine:
             el = (int(pts["r_elbow"][0]), int(pts["r_elbow"][1]))
             wr = (int(pts["r_wrist"][0]), int(pts["r_wrist"][1]))
 
-            arm_color = (0, 255, 0) if self.right_arm.smoothed_angle <= target else (0, 255, 200)
-            cv2.line(frame, sh, el, (255, 140, 0), 3)
-            cv2.line(frame, el, wr, arm_color, 3)
-            cv2.circle(frame, el, 8, arm_color, -1)
-            cv2.circle(frame, wr, 5, arm_color, -1)
+            forearm_color = (0, 255, 0) if self.right_arm.smoothed_angle <= target else (0, 255, 200)
+
+            if not self.right_arm.is_elbow_locked and self.right_arm.state in (1, 2, 3):
+                upper_arm_color = (0, 69, 255)  # Bright orange/red warning
+                upper_arm_width = 4
+                drift_label = f"R SWING ({int(self.right_arm.smoothed_shoulder_angle)} deg)"
+            else:
+                upper_arm_color = (255, 140, 0)  # Pinned cyan/blue
+                upper_arm_width = 3
+                drift_label = f"R Pinned ({int(self.right_arm.smoothed_shoulder_angle)} deg)"
+
+            cv2.line(frame, sh, el, upper_arm_color, upper_arm_width)
+            cv2.line(frame, el, wr, forearm_color, 3)
+            cv2.circle(frame, el, 8, upper_arm_color, -1)
+            cv2.circle(frame, wr, 5, forearm_color, -1)
             cv2.putText(
                 frame,
                 f"R: {int(self.right_arm.smoothed_angle)} deg",
                 (el[0] + 15, el[1] - 12),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                arm_color,
+                0.50,
+                forearm_color,
                 2
+            )
+            cv2.putText(
+                frame,
+                drift_label,
+                (sh[0] + 15, (sh[1] + el[1]) // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.38,
+                upper_arm_color,
+                1
             )
 
     def _draw_body_overlay(
