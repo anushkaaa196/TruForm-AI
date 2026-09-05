@@ -25,6 +25,7 @@ from .consistency_view import ConsistencyView
 from .trend_view import TrendView
 from .analytics_navigation import AnalyticsNavBar, QuickAnalyticsMenu
 from .analytics_hub import AnalyticsHubDialog
+from .gym_locator import GymLocatorDialog
 
 __all__ = [
     "SidebarFrame",
@@ -54,5 +55,6 @@ __all__ = [
     "TrendView",
     "AnalyticsNavBar",
     "QuickAnalyticsMenu",
-    "AnalyticsHubDialog"
+    "AnalyticsHubDialog",
+    "GymLocatorDialog"
 ]

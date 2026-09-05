@@ -38,8 +38,10 @@ def test_startup():
     app._open_analytics_hub("OVERVIEW")
     assert app.analytics_hub is not None
     assert app.analytics_hub.winfo_exists()
-    print("Analytics Hub opened and verified from main app.")
-    app.analytics_hub.destroy()
+    # Test Gym Locator button and dialog from app
+    assert app.sidebar.btn_gyms is not None
+    assert app.sidebar.btn_gyms.winfo_exists()
+    print(f"Gym Locator button verified: {app.sidebar.btn_gyms.cget('text')}")
 
     app.destroy()
     print("Application closed cleanly.")

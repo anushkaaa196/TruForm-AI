@@ -37,6 +37,15 @@ from .adaptive_coaching import get_adaptive_coaching
 from .readiness_intelligence import evaluate_workout_readiness
 from .recovery_recommendations import get_recovery_recommendations
 from .performance_trends import analyze_performance_trends
+from .gym_locator import (
+    get_device_location,
+    fetch_nearby_gyms,
+    get_google_maps_search_url,
+    get_google_maps_directions_url,
+    geocode_location,
+    calculate_distance,
+    open_url_in_browser
+)
 
 __all__ = [
     "LowPassFilter",
@@ -75,7 +84,14 @@ __all__ = [
     "get_adaptive_coaching",
     "evaluate_workout_readiness",
     "get_recovery_recommendations",
-    "analyze_performance_trends"
+    "analyze_performance_trends",
+    "get_device_location",
+    "fetch_nearby_gyms",
+    "get_google_maps_search_url",
+    "get_google_maps_directions_url",
+    "geocode_location",
+    "calculate_distance",
+    "open_url_in_browser"
 ]
 
 

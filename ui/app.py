@@ -36,7 +36,8 @@ from ui.components import (
     ProgressDashboardDialog,
     MovementIntelligenceDialog,
     SIHDemoWindow,
-    AnalyticsHubDialog
+    AnalyticsHubDialog,
+    GymLocatorDialog
 )
 
 
@@ -110,7 +111,8 @@ class AIWorkoutUI(ctk.CTk):
             on_explore_library=self._on_explore_library,
             on_open_analytics_hub=self._open_analytics_hub,
             on_view_plan=self._open_personalized_plan_dialog,
-            on_view_progress=self._open_progress_dashboard_dialog
+            on_view_progress=self._open_progress_dashboard_dialog,
+            on_find_gyms=self._open_gym_locator_dialog
         )
         self.sidebar.grid(row=0, column=0, padx=(16, 6), pady=(16, 10), sticky="nsew")
 
@@ -221,6 +223,10 @@ class AIWorkoutUI(ctk.CTk):
             coach_data=self._last_coach_data,
             recovery_data=self._last_recovery_data
         )
+
+    def _open_gym_locator_dialog(self):
+        """Opens the nearby gym and fitness facility locator modal dialog."""
+        GymLocatorDialog(self)
 
     def _open_analytics_hub(self, initial_tab: str = "OVERVIEW"):
         """Opens or focuses the dedicated Advanced Performance Analytics Hub."""

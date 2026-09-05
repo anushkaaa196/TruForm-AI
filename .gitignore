@@ -24,3 +24,4 @@ report_*.png
 summary_*.png
 test_*.png
 *.log
+.user_location.json

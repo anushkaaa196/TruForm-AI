@@ -49,6 +49,7 @@ The system:
 * 💬 **Real-Time Feedback**
 * 🖥️ **Interactive Desktop User Interface**
 * 🧠 **YOLOv8 Pose Estimation Integration**
+* 📍 **Nearby Gym & Fitness Center Locator (Device Geolocation + Google Maps Integration)**
 
 ---
 
