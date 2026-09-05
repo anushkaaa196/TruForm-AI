@@ -238,6 +238,38 @@ class GymLocatorDialog(ctk.CTkToplevel):
         self.radius_opt.set("5 km")
         self.radius_opt.pack(side="left")
 
+        # Row 3: Quick Area Shortcuts (Alpha 2, Alpha 1, Pari Chowk, Knowledge Park II, Jagat Farm)
+        chips_row = ctk.CTkFrame(ctrl_card, fg_color="transparent")
+        chips_row.pack(fill="x", padx=16, pady=(0, 10))
+
+        ctk.CTkLabel(
+            chips_row,
+            text="Quick Hubs:",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=theme.COLOR_TEXT_MUTED
+        ).pack(side="left", padx=(0, 6))
+
+        quick_areas = [
+            ("📍 Alpha 2", "Alpha 2"),
+            ("📍 Alpha 1", "Alpha 1"),
+            ("📍 Pari Chowk", "Pari Chowk"),
+            ("📍 Knowledge Park II (NIET)", "Knowledge Park 2"),
+            ("📍 Jagat Farm", "Jagat Farm")
+        ]
+        for label, area_name in quick_areas:
+            ctk.CTkButton(
+                chips_row,
+                text=label,
+                font=ctk.CTkFont(size=10, weight="bold"),
+                height=26,
+                corner_radius=13,
+                fg_color=theme.COLOR_CARD_ELEVATED,
+                hover_color=theme.COLOR_TEAL,
+                text_color=theme.COLOR_TEXT_PRIMARY,
+                command=lambda a=area_name: self._set_quick_area(a)
+            ).pack(side="left", padx=3)
+
+
     def _build_results_area(self, parent):
         """Scrollable results container for gym cards."""
         # Section summary bar
@@ -379,6 +411,9 @@ class GymLocatorDialog(ctk.CTkToplevel):
 
         for gym in gyms:
             self._render_gym_card(gym)
+
+        # Always append a Google Maps discovery card to explore all gyms with live reviews
+        self._render_gmaps_discovery_card(city)
 
     def _render_gym_card(self, gym: Dict[str, Any]):
         """Renders an individual gym listing card."""
@@ -584,4 +619,58 @@ class GymLocatorDialog(ctk.CTkToplevel):
             self.after(0, update_ui)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _set_quick_area(self, area_name: str):
+        """Quickly sets active location to a known hub."""
+        self.search_entry.delete(0, "end")
+        self.search_entry.insert(0, area_name)
+        self._on_manual_search()
+
+    def _render_gmaps_discovery_card(self, city_name: str):
+        """Renders an attractive discovery card to explore all gyms with live reviews on Google Maps."""
+        card = ctk.CTkFrame(
+            self.scroll_frame,
+            fg_color=theme.COLOR_CARD_INNER,
+            corner_radius=8,
+            border_width=1,
+            border_color=theme.COLOR_BORDER
+        )
+        card.pack(fill="x", padx=8, pady=(8, 12))
+        card.grid_columnconfigure(0, weight=1)
+
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=10)
+        row.grid_columnconfigure(0, weight=1)
+
+        info_col = ctk.CTkFrame(row, fg_color="transparent")
+        info_col.grid(row=0, column=0, sticky="w")
+
+        ctk.CTkLabel(
+            info_col,
+            text=f"🗺️ Want to explore more gyms around {city_name}?",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=theme.COLOR_TEXT_PRIMARY,
+            anchor="w"
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            info_col,
+            text="View 30+ local commercial gyms, customer reviews, live photos, and membership details.",
+            font=ctk.CTkFont(size=10),
+            text_color=theme.COLOR_TEXT_MUTED,
+            anchor="w"
+        ).pack(anchor="w", pady=(2, 0))
+
+        ctk.CTkButton(
+            row,
+            text="Open in Google Maps",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            height=28,
+            corner_radius=6,
+            fg_color=theme.COLOR_TEAL,
+            hover_color=theme.COLOR_TEAL_HOVER,
+            text_color=theme.COLOR_TEXT_PRIMARY,
+            command=self._on_open_google_maps_all
+        ).grid(row=0, column=1, sticky="e", padx=(10, 0))
+
 

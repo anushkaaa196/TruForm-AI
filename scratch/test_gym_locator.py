@@ -95,14 +95,34 @@ def run_tests():
 
     # Test empty fallback rendering
     dialog._render_empty_fallback("Greater Noida")
+    dialog._render_gmaps_discovery_card("Greater Noida")
 
     dialog.destroy()
     root.destroy()
     print("[PASSED] TEST 4 PASSED: GymLocatorDialog successfully instantiated and tested headlessly.")
 
+    # TEST 5: Alpha 2 Geocoding & Gym Discovery
+    print("\n--- TEST 5: Alpha 2 Geocoding & Gym Discovery ---")
+    from core.gym_locator import geocode_location, fetch_nearby_gyms
+    alpha_loc = geocode_location("alpha 2")
+    assert alpha_loc is not None, "Failed to resolve 'alpha 2'"
+    print(f"Alpha 2 resolved: {alpha_loc['city']} ({alpha_loc['lat']}, {alpha_loc['lon']})")
+    assert round(alpha_loc["lat"], 2) == 28.48, f"Unexpected lat: {alpha_loc['lat']}"
+
+    alpha_gyms = fetch_nearby_gyms(alpha_loc["lat"], alpha_loc["lon"], radius_km=2.0)
+    print(f"Found {len(alpha_gyms)} gyms within 2km of Alpha 2:")
+    for g in alpha_gyms[:5]:
+        print(f"  * {g['name']} ({g['distance_km']} km)")
+
+    assert len(alpha_gyms) >= 5, f"Expected at least 5 gyms in Alpha 2, got {len(alpha_gyms)}"
+    # Verify closest gym is within 0.5km
+    assert alpha_gyms[0]["distance_km"] <= 0.5, f"Closest gym too far: {alpha_gyms[0]['distance_km']} km"
+    print("[PASSED] TEST 5 PASSED: Alpha 2 location and nearby gyms fully verified.")
+
     print("\n============================================================")
-    print("ALL 4 GYM LOCATOR TESTS PASSED!")
+    print("ALL 5 GYM LOCATOR TESTS PASSED!")
     print("============================================================")
+
 
 
 if __name__ == "__main__":
